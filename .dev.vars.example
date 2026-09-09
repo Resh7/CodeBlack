@@ -1,0 +1,13 @@
+# Copy this file to .dev.vars and fill only the secrets you need.
+# Never commit .dev.vars.
+
+RMJ_API_TOKEN=
+RMJ_BASIC_CREDENTIALS=
+
+GCP_SERVICE_ACCOUNT_JSON=
+GCS_SERVICE_ACCOUNT_JSON=
+GCP_ACCESS_TOKEN=
+GCS_ACCESS_TOKEN=
+
+ORACLE_GATEWAY_TOKEN=
+MONGODB_GATEWAY_TOKEN=

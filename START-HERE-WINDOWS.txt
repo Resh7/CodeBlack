@@ -1,0 +1,21 @@
+Batch Operations Control Center: Windows quick start
+
+1. Use Node.js 22.13.0 or newer. Node 20.20.2 is not supported.
+2. Open a new PowerShell window in this folder.
+3. Run: node --version
+4. Run: npm install
+5. Optional real connections: copy .dev.vars.example to .dev.vars and add secrets.
+6. Run: npm run dev
+7. Open the local URL printed by Vite.
+
+If nvm still shows Node 20:
+
+1. Run: nvm list available
+2. Run: nvm install <latest-22.x-version>
+3. Run: nvm use <latest-22.x-version>
+4. Close every terminal and open a new PowerShell window.
+5. Run: where.exe node
+6. Run: node --version
+
+Do not prefix npm commands with WRANGLER_LOG_PATH=... on Windows.
+Read README.md for connector permissions, Settings fields, and health checks.
