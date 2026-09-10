@@ -21,6 +21,9 @@ import {
   Settings,
   ShieldCheck,
   ScrollText,
+  Server,
+  Filter,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -34,12 +37,20 @@ import {
   LiveJobs,
   LivePerformance,
   LiveValidations,
+  useApi
 } from "@/components/live-operations";
 import { ENVIRONMENTS } from "@/lib/environments";
 import { LocalConnections } from "@/components/local-connections";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sidebar,
   SidebarContent,
@@ -211,7 +222,7 @@ function PageHeading({
     "gcsLogs",
   ].includes(view);
   return (
-    <div className="ops-page-heading">
+    <div className="ops-page-heading pb-2">
       <div className="ops-page-heading-copy">
       <p className="ops-eyebrow">
         {businessDate && dateAware
@@ -317,53 +328,88 @@ function DatadogLogs({
   initialJobName: string;
 }) {
   const [jobName, setJobName] = useState(initialJobName);
+  const [moduleName, setModuleName] = useState("bes-int-cons");
+  const [timeRange, setTimeRange] = useState("15m");
+
+  const modules = [
+    "bes-api", "bes-batch", "bes-connector", "bes-core",
+    "bes-cpd", "bes-ctm", "bes-db", "bes-fis", "bes-fmm",
+    "bes-ids", "bes-int-cons", "bes-lib", "bes-model",
+    "bes-mongodb", "bes-rms", "bes-sspmodel", "bes-tpm"
+  ];
+
   const openDatadog = () => {
-    const namespace = environment.replace(/^(NP_|PROD_)/, "").toLowerCase();
+    const envCode = environment.replace(/^(NP_|PROD_)/, "").toLowerCase();
+    const ddEnv = environment.startsWith("PROD_") ? `prod-${envCode}` : `np-${envCode}`;
+
     const query = [
-      namespace ? `kube_namespace:${namespace}` : "",
-      jobName.trim() ? `\"${jobName.trim()}\"` : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    window.open(
-      `https://app.datadoghq.com/logs?query=${encodeURIComponent(query)}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+      `env:${ddEnv}`,
+      `service:${moduleName}`,
+      jobName.trim() ? `"${jobName.trim()}"` : "",
+    ].filter(Boolean).join(" ");
+
+    let fromTs = "now-15m";
+    if (timeRange === "1h") fromTs = "now-1h";
+    if (timeRange === "4h") fromTs = "now-4h";
+    if (timeRange === "1d") fromTs = "now-1d";
+
+    const url = `https://us5.datadoghq.com/logs?query=${encodeURIComponent(query)}&from_ts=${fromTs}&to_ts=now&live=true`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
+
   return (
     <div className="space-y-5">
-      <div>{heading}</div>
-      <section className="ops-surface max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex size-11 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
-          <Activity className="size-5" />
-        </div>
-        <h2 className="mt-4 text-lg font-semibold text-slate-950">
-          Search Datadog by batch job
-        </h2>
-        <p className="mt-1 text-sm leading-6 text-slate-500">
-          The selected environment is applied as the Kubernetes namespace. Add a
-          batch job name to search its related Datadog logs.
-        </p>
-        <label className="mt-5 grid gap-2 text-sm font-medium text-slate-700">
-          Batch job name
-          <Input
-            value={jobName}
-            onChange={(event) => setJobName(event.target.value)}
-            placeholder="Example: intConsBatchJob"
-          />
-        </label>
-        <div className="mt-5 flex items-center gap-3">
-          <Badge variant="outline">
-            Environment: {environment.replace(/^(NP_|PROD_)/, "")}
-          </Badge>
-          <Button
-            className="bg-violet-700 text-white hover:bg-violet-800"
-            onClick={openDatadog}
-          >
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div>{heading}</div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={openDatadog}>
             <ExternalLink className="size-4" />
-            Open Datadog search
+            Open Log Explorer (US5)
           </Button>
+        </div>
+      </div>
+      <section className="ops-surface overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 p-4">
+          <div className="flex items-center gap-2">
+            <Filter className="size-4 text-violet-700" />
+            <h2 className="text-sm font-semibold text-slate-950">Datadog log filters</h2>
+          </div>
+        </div>
+        <div className="p-4 grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1.5fr_1fr_1.5fr_auto]">
+          <label className="grid gap-1.5 text-xs font-medium text-slate-600">
+            Target environment
+            <Input value={environment.replace(/^(NP_|PROD_)/, "").toLowerCase() || "local"} disabled className="bg-slate-50 font-semibold" />
+          </label>
+          <label className="grid gap-1.5 text-xs font-medium text-slate-600">
+            Module / service
+            <Select value={moduleName} onValueChange={setModuleName}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {modules.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="grid gap-1.5 text-xs font-medium text-slate-600">
+            Live time range
+            <Select value={timeRange} onValueChange={setTimeRange}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="15m">Past 15 minutes</SelectItem>
+                <SelectItem value="1h">Past 1 hour</SelectItem>
+                <SelectItem value="4h">Past 4 hours</SelectItem>
+                <SelectItem value="1d">Past 1 day</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="grid gap-1.5 text-xs font-medium text-slate-600">
+            Batch job search
+            <Input value={jobName} onChange={e => setJobName(e.target.value)} placeholder="Optional job name constraint" />
+          </label>
+          <div className="flex items-end">
+            <Button className="bg-violet-700 text-white hover:bg-violet-800 w-full" onClick={openDatadog}>
+              <Search className="size-4" /> Search Datadog
+            </Button>
+          </div>
         </div>
       </section>
     </div>
@@ -377,6 +423,10 @@ export default function ControlCenter() {
   const [environment, setEnvironment] = useState("LOCAL");
   const [motionPaused, setMotionPaused] = useState(false);
   const [validationGroup, setValidationGroup] = useState<"Scheduled" | "Unscheduled">("Scheduled");
+  
+  // Group 5: Fetch global dashboard shortcut data
+  const shortcutData = useApi<any>(`/api/operations/overview?environment=${encodeURIComponent(environment)}`);
+
   useEffect(() => {
     const syncVisibility = () => {
       document.documentElement.dataset.pageHidden = String(document.hidden);
@@ -388,6 +438,7 @@ export default function ControlCenter() {
       delete document.documentElement.dataset.pageHidden;
     };
   }, []);
+
   const heading = (target: View, date = false): ReactNode => (
     <PageHeading key={target} view={target} businessDate={date ? businessDate : undefined} />
   );
@@ -505,6 +556,19 @@ export default function ControlCenter() {
             </div>
           </div>
           <div className="ops-topbar-controls">
+            {/* Global dashboard shortcuts populated by dynamic data */}
+            <div className="hidden lg:flex items-center gap-4 text-[11px] font-medium text-slate-600 mr-2 bg-slate-100/50 px-3 py-1.5 rounded-full border border-slate-200">
+              {shortcutData.loading ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <>
+                  <span className="flex items-center gap-1.5"><Server className="size-3.5 text-emerald-600" /> {shortcutData.data?.metrics?.connectedIntegrations ?? 0} connected</span>
+                  <span className="flex items-center gap-1.5"><CalendarDays className="size-3.5 text-cyan-600" /> {shortcutData.data?.metrics?.activeCatalogJobs ?? 0} jobs</span>
+                  <span className="flex items-center gap-1.5"><ShieldCheck className="size-3.5 text-amber-600" /> {shortcutData.data?.metrics?.validationRuns ?? 0} runs</span>
+                </>
+              )}
+            </div>
+
             <div className="ops-date-control">
               <Button
                 variant="ghost"

@@ -87,9 +87,14 @@ type ReportAnalysis = {
   reportType: "run" | "control" | "other";
   recordCount: number | null;
   processedCount: number | null;
+  declaredTotal?: number | null;
+  parsedRecords?: number | null;
+  uniqueCaseIds?: number | null;
+  successfulRecords?: number | null;
   errorCount: number;
   warningCount: number;
   nullCount: number;
+  mismatches?: number | null;
   observations: Array<{ label: string; count: number; detail: string }>;
   summary: string;
   truncated?: boolean;
@@ -208,6 +213,11 @@ export default function GcsLogs({
   const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
   const effectiveScope = scope === "transfers" ? transferArea : scope;
 
+  const environmentFolder = environment.trim().toUpperCase() || "LOCAL";
+  const rootPrefix = scope === "reports"
+    ? `BatchControlReport/${environmentFolder}/`
+    : `${effectiveScope === "outbound" ? "OUTBOUND" : "INBOUND"}/${environmentFolder}/`;
+
   async function loadObjects(
     token = "",
     resetHistory = false,
@@ -218,9 +228,10 @@ export default function GcsLogs({
     if (!merge) setLoading(true);
     setError(null);
     try {
+      const activePrefix = prefixOverride ?? prefix;
       const params = new URLSearchParams({
         q: query,
-        prefix: prefixOverride ?? prefix,
+        prefix: activePrefix,
         from: fromDate,
         to: toDate,
         type: fileType,
@@ -295,14 +306,14 @@ export default function GcsLogs({
   }
 
   useEffect(() => {
+    setPrefix(rootPrefix);
     const timer = window.setTimeout(
-      () => void loadObjects("", true, localMode ? "" : undefined),
+      () => void loadObjects("", true, rootPrefix),
       0,
     );
     return () => window.clearTimeout(timer);
-    // Reload when the Local GCS Inbound or Outbound switch changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveScope]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveScope, environment, scope]);
 
   async function openLog(item: GcsObject) {
     const name = cleanObjectName(item.name);
@@ -389,6 +400,7 @@ export default function GcsLogs({
         }),
     [content, severity, viewerQuery],
   );
+
   const severityCounts = useMemo(
     () =>
       content.split(/\r?\n/).reduce<Record<string, number>>((counts, line) => {
@@ -398,6 +410,23 @@ export default function GcsLogs({
       }, {}),
     [content],
   );
+
+  const filteredContentBlob = useMemo(() => {
+    const text = logLines.map(l => l.line).join("\n");
+    return new Blob([text], { type: "text/plain" });
+  }, [logLines]);
+
+  const handleDownloadSelected = () => {
+    const url = URL.createObjectURL(filteredContentBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `filtered_${selected?.name.split("/").pop()}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const latest = objects.find((item) => item.updated)?.updated;
 
   function useBusinessDate() {
@@ -417,34 +446,33 @@ export default function GcsLogs({
     await loadObjects(previous);
   }
 
+  const canGoBack = prefix.length > rootPrefix.length && prefix.startsWith(rootPrefix);
+
+  const handleBack = () => {
+    if (!canGoBack) return;
+    const segments = prefix.replace(/\/$/, "").split("/");
+    segments.pop();
+    const nextPrefix = segments.length ? segments.join("/") + "/" : "";
+    const finalPrefix = nextPrefix.length < rootPrefix.length ? rootPrefix : nextPrefix;
+    setPrefix(finalPrefix);
+    void loadObjects("", true, finalPrefix);
+  };
+
   const downloadUrl = (name: string) =>
     `http://localhost:8788/local-bes/gcs?name=${encodeURIComponent(cleanObjectName(name))}&download=1&environment=${encodeURIComponent(environment)}`;
+    
   const openGcsConsole = () => {
-    const environmentFolder = environment.trim().toUpperCase() || "LOCAL";
     const isLocalEnvironment = environmentFolder === "LOCAL";
-    const isProductionEnvironment = [
-      "UAT1",
-      "PROD_TIM3",
-      "PER1",
-      "STG1",
-    ].includes(environmentFolder);
-    const defaultPrefix =
-      scope === "reports"
-        ? `BatchControlReport/${environmentFolder}/`
-        : `${effectiveScope === "outbound" ? "OUTBOUND" : "INBOUND"}/${environmentFolder}/`;
-    const activePrefix =
-      prefix || resolvedPrefix.split(",")[0]?.trim() || defaultPrefix;
-    const consoleBucket = isLocalEnvironment
-      ? bucket || "dhs-bes-np-gcs-intcons-to-process-local"
-      : "dhs-bes-np-gcs-intcons-to-process";
+    const isProductionEnvironment = ["UAT1", "PROD_TIM3", "PER1", "STG1"].includes(environmentFolder);
+    const activePrefix = prefix || resolvedPrefix.split(",")[0]?.trim() || rootPrefix;
+    const consoleBucket = isLocalEnvironment ? bucket || "dhs-bes-np-gcs-intcons-to-process-local" : "dhs-bes-np-gcs-intcons-to-process";
     const consoleProject = isProductionEnvironment ? "bes-prd" : "bes-np";
-    const url = new URL(
-      `https://console.cloud.google.com/storage/browser/${encodeURIComponent(consoleBucket)}`,
-    );
+    const url = new URL(`https://console.cloud.google.com/storage/browser/${encodeURIComponent(consoleBucket)}`);
     if (activePrefix) url.searchParams.set("prefix", activePrefix);
     url.searchParams.set("project", consoleProject);
     window.open(url.toString(), "_blank", "noopener,noreferrer");
   };
+
   return (
     <div
       className="space-y-6"
@@ -518,7 +546,6 @@ export default function GcsLogs({
                       className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition ${transferArea === area ? "bg-cyan-500 text-slate-950" : "text-slate-300 hover:bg-white/10"}`}
                       onClick={() => {
                         setTransferArea(area);
-                        setPrefix("");
                       }}
                     >
                       {area}
@@ -600,7 +627,7 @@ export default function GcsLogs({
               Filter GCS objects
             </h2>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_.72fr_.72fr_.65fr_auto]">
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1.3fr_.62fr_.62fr_.65fr_auto]">
             <label className="grid gap-1.5">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                 Object name
@@ -620,28 +647,32 @@ export default function GcsLogs({
             </label>
             <label className="grid gap-1.5">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Folder prefix
+                Folder navigation
               </span>
-              <Select
-                value={prefix || "ALL"}
-                onValueChange={(value) => {
-                  const nextPrefix = value === "ALL" ? "" : value;
-                  setPrefix(nextPrefix);
-                  void loadObjects("", true, nextPrefix);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="All folders" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All folders</SelectItem>
-                  {folderOptions.map((folder) => (
-                    <SelectItem key={folder} value={folder}>
-                      {folder}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2">
+                <Button variant="outline" size="icon" disabled={!canGoBack} onClick={handleBack} title="Go back one folder">
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <Select
+                  value={prefix || rootPrefix}
+                  onValueChange={(value) => {
+                    setPrefix(value);
+                    void loadObjects("", true, value);
+                  }}
+                >
+                  <SelectTrigger className="flex-1 max-w-[220px]">
+                    <SelectValue placeholder="Current folder" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={rootPrefix}>Environment root</SelectItem>
+                    {folderOptions.map((folder) => (
+                      <SelectItem key={folder} value={folder}>
+                        {folder}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </label>
             <label className="grid gap-1.5">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
@@ -1115,6 +1146,10 @@ export default function GcsLogs({
                     Download full object
                   </a>
                 </Button>
+                <Button variant="outline" onClick={handleDownloadSelected} disabled={logLines.length === 0}>
+                  <Download className="size-4" />
+                  Download selected
+                </Button>
               </div>
               {contentLoading ? (
                 <div className="grid place-items-center rounded-2xl border border-slate-800 bg-slate-950 py-24">
@@ -1166,7 +1201,7 @@ export default function GcsLogs({
                       <div className="p-4 text-center text-xs text-amber-300">
                         <AlertTriangle className="mr-2 inline size-4" />
                         Showing the first 1,000 matching lines. Refine the
-                        filters or download the full object.
+                        filters or download the selected objects.
                       </div>
                     )}
                   </div>
@@ -1181,7 +1216,7 @@ export default function GcsLogs({
         open={Boolean(analysis)}
         onOpenChange={(open) => !open && setAnalysis(null)}
       >
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Report analysis</DialogTitle>
             <DialogDescription className="break-all">
@@ -1193,17 +1228,19 @@ export default function GcsLogs({
               <div className="rounded-xl border border-cyan-100 bg-cyan-50 p-4 text-sm leading-6 text-slate-700">
                 {analysis.summary}
               </div>
-              <div className="grid gap-3 sm:grid-cols-4">
-                {[
+              <div className="grid gap-3 sm:grid-cols-4 lg:grid-cols-5">
+                {(
                   [
-                    "Processed",
-                    analysis.processedCount ?? analysis.recordCount ?? 0,
-                    "text-cyan-700",
-                  ],
-                  ["Errors", analysis.errorCount, "text-rose-700"],
-                  ["Warnings", analysis.warningCount, "text-amber-700"],
-                  ["Null findings", analysis.nullCount, "text-violet-700"],
-                ].map(([label, value, color]) => (
+                    ["Declared total", analysis.declaredTotal, "text-slate-700"],
+                    ["Parsed records", analysis.parsedRecords, "text-cyan-700"],
+                    ["Unique Case IDs", analysis.uniqueCaseIds, "text-indigo-700"],
+                    ["Successful", analysis.successfulRecords, "text-emerald-700"],
+                    ["Errors", analysis.errorCount, "text-rose-700"],
+                    ["Warnings", analysis.warningCount, "text-amber-700"],
+                    ["Null findings", analysis.nullCount, "text-violet-700"],
+                    ["Mismatches", analysis.mismatches, "text-orange-700"],
+                  ] as Array<[string, number | null | undefined, string]>
+                ).filter(([_, val]) => val != null).map(([label, value, color]) => (
                   <div
                     key={String(label)}
                     className="rounded-xl border border-slate-200 p-3"

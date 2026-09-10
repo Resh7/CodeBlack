@@ -83,8 +83,9 @@ type Integration = {
   lastDiagnostic?: string;
 };
 
-type LocalConnectorConfig = {
+export type LocalConnectorConfig = {
   connectionHealth?: Record<string, boolean>;
+  config?: Record<string, string>;
 };
 
 type Run = {
@@ -101,7 +102,7 @@ type Run = {
   executedBy: string;
 };
 
-type Overview = {
+export type Overview = {
   integrations: Integration[];
   storageAvailable: boolean;
   storageWarning?: string;
@@ -295,7 +296,7 @@ type AuditEvent = {
   occurredAt: string;
 };
 
-function useApi<T>(url: string) {
+export function useApi<T>(url: string) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -480,28 +481,28 @@ function Metric({
 
 function ScheduledJobsTable({ jobs }: { jobs: CatalogJob[] }) {
   return (
-    <Table>
+    <Table className="text-xs">
       <TableHeader>
         <TableRow>
-          <TableHead>Job</TableHead>
-          <TableHead>Group / schedule</TableHead>
-          <TableHead>Pre</TableHead>
-          <TableHead>Post</TableHead>
+          <TableHead className="h-8">Job</TableHead>
+          <TableHead className="h-8">Group / schedule</TableHead>
+          <TableHead className="h-8">Pre</TableHead>
+          <TableHead className="h-8">Post</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {jobs.map((job) => (
           <TableRow key={job.id}>
-            <TableCell className="font-medium">{job.jobName}</TableCell>
-            <TableCell className="text-xs">
+            <TableCell className="font-medium py-2">{job.jobName}</TableCell>
+            <TableCell className="text-[11px] py-2">
               {job.schedule || "Not mapped"}
             </TableCell>
-            <TableCell>
+            <TableCell className="py-2">
               <StatusBadge
                 status={job.hasPreValidation ? "READY" : "NOT_CONFIGURED"}
               />
             </TableCell>
-            <TableCell>
+            <TableCell className="py-2">
               <StatusBadge
                 status={job.hasPostValidation ? "READY" : "NOT_CONFIGURED"}
               />
@@ -510,217 +511,6 @@ function ScheduledJobsTable({ jobs }: { jobs: CatalogJob[] }) {
         ))}
       </TableBody>
     </Table>
-  );
-}
-
-function DashboardLegacy({
-  heading,
-  businessDate,
-  onOpenSettings,
-  onOpenJobs,
-}: {
-  heading: ReactNode;
-  businessDate: string;
-  onOpenSettings: () => void;
-  onOpenJobs: () => void;
-}) {
-  const overview = useApi<Overview>("/api/operations/overview");
-  const scheduler = useApi<{ jobs: SchedulerJob[]; fetchedAt: string }>(
-    `/api/runmyjobs/jobs?businessDate=${encodeURIComponent(businessDate)}`,
-  );
-  const catalog = useApi<{ jobs: CatalogJob[] }>(
-    `/api/jobs?kind=ALL&businessDate=${encodeURIComponent(businessDate)}`,
-  );
-  if (overview.loading && !overview.data)
-    return (
-      <div className="space-y-6">
-        <div>{heading}</div>
-        <Card>
-          <Busy />
-        </Card>
-      </div>
-    );
-  const data = overview.data;
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>{heading}</div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            overview.reload();
-            scheduler.reload();
-            catalog.reload();
-          }}
-        >
-          <RefreshCw className="size-4" />
-          Refresh live state
-        </Button>
-      </div>
-      {overview.error && <ErrorNotice message={overview.error} />}{" "}
-      {data?.storageWarning && <ErrorNotice message={data.storageWarning} />}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric
-          label="Connected connectors"
-          value={`${data?.metrics.connectedIntegrations ?? 0} / ${data?.metrics.totalIntegrations ?? 0}`}
-          detail="Only successful health tests count"
-          icon={Server}
-          tone="bg-emerald-50 text-emerald-700"
-        />
-        <Metric
-          label="Imported catalog"
-          value={(data?.metrics.activeCatalogJobs ?? 0).toLocaleString()}
-          detail="Active rows from uploaded workbooks"
-          icon={Database}
-          tone="bg-cyan-50 text-cyan-700"
-        />
-        <Metric
-          label="Workbook sources"
-          value={(data?.metrics.activeWorkbookSources ?? 0).toLocaleString()}
-          detail="Active Daily, Special, and Validation files"
-          icon={FileSpreadsheet}
-          tone="bg-violet-50 text-violet-700"
-        />
-        <Metric
-          label="Validation runs"
-          value={(data?.metrics.validationRuns ?? 0).toLocaleString()}
-          detail="Persisted real execution attempts"
-          icon={ShieldCheck}
-          tone="bg-amber-50 text-amber-700"
-        />
-      </div>
-      <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
-        <Card>
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-950">
-                {scheduler.error
-                  ? "Imported jobs for local testing"
-                  : `RunMyJobs for ${businessDate}`}
-              </h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {scheduler.error
-                  ? "Actual job rows from the active Daily and Special uploads"
-                  : "Direct read from the configured scheduler endpoint"}
-              </p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={onOpenJobs}>
-              Open jobs
-            </Button>
-          </div>
-          {scheduler.loading && !scheduler.error ? (
-            <Busy />
-          ) : scheduler.error ? (
-            catalog.loading ? (
-              <Busy />
-            ) : catalog.data?.jobs.length ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-5">Job</TableHead>
-                    <TableHead>Catalog</TableHead>
-                    <TableHead className="pr-5">Schedule</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {catalog.data.jobs.slice(0, 8).map((job) => (
-                    <TableRow key={job.id}>
-                      <TableCell className="pl-5 font-medium text-slate-900">
-                        {job.jobName}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{job.definitionKind}</Badge>
-                      </TableCell>
-                      <TableCell className="pr-5 text-xs text-slate-500">
-                        {rawField(job.rawJson, [
-                          "schedule",
-                          "time",
-                          "starttime",
-                          "runtime",
-                          "frequency",
-                        ]) || "From uploaded workbook"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <EmptyState
-                title="Upload the job workbook first"
-                detail="Dashboard counts and local job rows are generated from the active Daily and Special job uploads."
-                action={
-                  <Button size="sm" onClick={onOpenJobs}>
-                    Open jobs
-                  </Button>
-                }
-              />
-            )
-          ) : scheduler.data?.jobs.length ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-5">Job</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="pr-5">Started</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {scheduler.data.jobs.slice(0, 8).map((job, index) => (
-                  <TableRow key={job.id || `${job.name}-${index}`}>
-                    <TableCell className="pl-5 font-medium text-slate-900">
-                      {job.name}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={String(job.status ?? "")} />
-                    </TableCell>
-                    <TableCell className="pr-5 text-xs text-slate-500">
-                      {formatDate(job.startedAt)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <EmptyState
-              title="No scheduler jobs returned"
-              detail="The configured RunMyJobs endpoint returned an empty collection for this request."
-            />
-          )}
-        </Card>
-        <Card>
-          <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="text-sm font-semibold text-slate-950">
-              Connector health
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Server-side test status, never inferred from sample data
-            </p>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {data?.integrations.map((item) => (
-              <button
-                key={item.id}
-                className="flex w-full items-center justify-between gap-3 p-4 text-left hover:bg-slate-50"
-                onClick={onOpenSettings}
-              >
-                <div>
-                  <p className="text-sm font-medium text-slate-900">
-                    {item.displayName}
-                  </p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {item.environment} ·{" "}
-                    {item.lastTestedAt
-                      ? formatDate(item.lastTestedAt)
-                      : "Never tested"}
-                  </p>
-                </div>
-                <StatusBadge status={item.status} />
-              </button>
-            ))}
-          </div>
-        </Card>
-      </div>
-    </div>
   );
 }
 
@@ -750,8 +540,19 @@ export function LiveDashboard({
   const scheduled = useApi<{ jobs: CatalogJob[] }>(
     `/api/jobs?kind=ALL&businessDate=${encodeURIComponent(businessDate)}`,
   );
+
   const [open, setOpen] = useState<"daily" | "special" | "all" | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
+  const [dashboardTesting, setDashboardTesting] = useState<string | null>(null);
+  const [disconnectedOverride, setDisconnectedOverride] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      localConnector.reload();
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [localConnector.reload]);
+
   const jobs = scheduled.data?.jobs ?? [];
   const local = environment === "LOCAL";
   const dailyJobs = jobs.filter((job) => job.definitionKind === "DAILY");
@@ -759,28 +560,52 @@ export function LiveDashboard({
   const daily = dailyJobs.length;
   const special = specialJobs.length;
   const data = overview.data;
+
+  const handleTest = async (localKey: string) => {
+    setDashboardTesting(localKey);
+    try {
+      await fetch("http://localhost:8788/local-bes/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: localKey, environment }),
+      });
+      setDisconnectedOverride((prev) => ({ ...prev, [localKey]: false }));
+    } finally {
+      setDashboardTesting(null);
+      localConnector.reload();
+    }
+  };
+
   const healthIntegrations = useMemo(() => {
     const connectorHealth = localConnector.data?.connectionHealth ?? {};
+    const config = localConnector.data?.config ?? {};
+    
     return (data?.integrations ?? []).map((item) => {
-      const localKey = item.id.startsWith("rmj-")
-        ? "rmj"
-        : item.id.startsWith("gcp-logging-")
-          ? "cloud-logs"
-          : item.id.startsWith("gcs-")
-            ? "gcs"
-            : item.id.startsWith("oracle-")
-              ? "oracle"
-              : item.id.startsWith("mongodb-")
-                ? "mongo"
-                : "";
-      return localKey && connectorHealth[localKey]
-        ? { ...item, status: "CONNECTED", lastTestedAt: undefined }
-        : item;
+      const localKey = item.id.startsWith("rmj-") ? "rmj"
+        : item.id.startsWith("gcp-logging-") ? "cloud-logs"
+        : item.id.startsWith("gcs-") ? "gcs"
+        : item.id.startsWith("oracle-") ? "oracle"
+        : item.id.startsWith("mongodb-") ? "mongo" : "";
+
+      let status = "Not Configured";
+      let isConfigured = false;
+
+      if (localKey === "oracle") isConfigured = !!config.oracleConnectString;
+      if (localKey === "mongo") isConfigured = !!config.mongoUrl;
+      if (localKey === "rmj") isConfigured = !!config.rmjJobsUrl;
+      if (localKey === "gcs") isConfigured = !!config.gcsBucket;
+      if (localKey === "cloud-logs") isConfigured = !!config.gcsProject;
+
+      if (isConfigured) {
+        status = (connectorHealth[localKey] && !disconnectedOverride[localKey]) ? "Connected" : "Not Connected";
+      }
+
+      return { ...item, localKey, dashboardStatus: status };
     });
-  }, [data?.integrations, localConnector.data?.connectionHealth]);
-  const connectedConnectorCount = healthIntegrations.filter(
-    (item) => item.status === "CONNECTED",
-  ).length;
+  }, [data?.integrations, localConnector.data, disconnectedOverride]);
+
+  const connectedConnectorCount = healthIntegrations.filter(i => i.dashboardStatus === "Connected").length;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -831,7 +656,7 @@ export function LiveDashboard({
           <span className="studio-plug-icon"><Plug aria-hidden="true" /></span>
           <div>
             <h2 id="connection-summary-title">Connection status</h2>
-            <p>{overview.loading ? "Checking connections…" : overview.error ? "Status unavailable" : `${connectedConnectorCount} of ${data?.metrics.totalIntegrations ?? 0} connectors configured`}</p>
+            <p>{overview.loading ? "Checking connections…" : overview.error ? "Status unavailable" : `${connectedConnectorCount} of ${data?.metrics.totalIntegrations ?? 0} connectors connected`}</p>
             <small>{local ? "Local BES" : environment.replace(/^(NP_|PROD_)/, "")} · Current environment</small>
           </div>
           <button className="studio-circle-button" onClick={onOpenSettings} aria-label="Manage connection settings"><ArrowUpRight aria-hidden="true" /></button>
@@ -880,29 +705,29 @@ export function LiveDashboard({
               detail={scheduled.error}
             />
           ) : jobs.length ? (
-            <Table className="studio-schedule-table">
+            <Table className="studio-schedule-table text-xs">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="pl-5">Job</TableHead>
-                  <TableHead>Group / schedule</TableHead>
-                  <TableHead className="pr-5">Validation</TableHead>
+                  <TableHead className="pl-5 h-8">Job</TableHead>
+                  <TableHead className="h-8">Group / schedule</TableHead>
+                  <TableHead className="pr-5 h-8">Validation</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {jobs.slice(0, 8).map((job) => (
                   <TableRow key={job.id}>
-                    <TableCell className="pl-5">
-                      <p className="studio-job-name font-medium text-slate-900">
+                    <TableCell className="pl-5 py-2">
+                      <p className="studio-job-name font-medium text-slate-900 text-xs">
                         {job.jobName}
                       </p>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[10px] text-slate-500">
                         {job.definitionKind}
                       </p>
                     </TableCell>
-                    <TableCell className="text-xs text-slate-600">
+                    <TableCell className="text-[11px] text-slate-600 py-2">
                       {job.schedule || "Not mapped"}
                     </TableCell>
-                    <TableCell className="pr-5 text-xs text-slate-600">
+                    <TableCell className="pr-5 text-[11px] text-slate-600 py-2">
                       {job.hasPreValidation || job.hasPostValidation
                         ? "Pre/Post available"
                         : "Not mapped"}
@@ -922,40 +747,53 @@ export function LiveDashboard({
           <div className="ops-connector-heading border-b border-slate-100 px-5 py-4">
             <div>
               <h2 className="text-sm font-semibold text-slate-950">Connector health</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Your selected environment</p>
+              <p className="mt-0.5 text-xs text-slate-500">Auto-refreshing live verifications</p>
             </div>
             <span className="ops-connector-count">{connectedConnectorCount}<span> / {data?.metrics.totalIntegrations ?? 0}</span></span>
           </div>
           <div className="divide-y divide-slate-100">
             {healthIntegrations.map((item) => (
-              <button
+              <div
                 key={item.id}
                 className="ops-connector-row flex w-full items-center justify-between gap-3 p-4 text-left hover:bg-slate-50"
-                onClick={onOpenSettings}
               >
-                <span className={`ops-connector-symbol ${item.status === "CONNECTED" ? "is-connected" : ""}`} aria-hidden="true"><Server className="size-4" /></span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-900">
-                    {item.displayName}
-                  </p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {item.environment} ·{" "}
-                    {item.status === "CONNECTED"
-                      ? "Configured on this computer"
-                      : item.lastTestedAt
-                        ? formatDate(item.lastTestedAt)
-                        : "Not configured"}
-                  </p>
+                <div className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" onClick={onOpenSettings} role="button">
+                  <span className={`ops-connector-symbol ${item.dashboardStatus === "Connected" ? "is-connected" : ""}`} aria-hidden="true"><Server className="size-4" /></span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-900">
+                      {item.displayName}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {item.environment} ·{" "}
+                      {item.dashboardStatus === "Connected"
+                        ? "Active on this computer"
+                        : item.lastTestedAt
+                          ? formatDate(item.lastTestedAt)
+                          : "Unknown"}
+                    </p>
+                  </div>
                 </div>
-                <StatusBadge status={item.status} />
-              </button>
+                <div className="flex gap-2 shrink-0">
+                   {item.dashboardStatus === "Not Configured" && (
+                      <Badge variant="outline" className="cursor-pointer border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100" onClick={onOpenSettings}>Not Configured</Badge>
+                   )}
+                   {item.dashboardStatus === "Not Connected" && (
+                      <Badge variant="outline" className="cursor-pointer border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" onClick={(e) => { e.stopPropagation(); void handleTest(item.localKey); }}>
+                         {dashboardTesting === item.localKey ? <Loader2 className="size-3.5 animate-spin mr-1"/> : null}
+                         Not Connected
+                      </Badge>
+                   )}
+                   {item.dashboardStatus === "Connected" && (
+                      <Badge variant="outline" className="cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100" onClick={(e) => { e.stopPropagation(); setDisconnectedOverride(prev => ({...prev, [item.localKey]: true})); }}>
+                         Connected
+                      </Badge>
+                   )}
+                </div>
+              </div>
             ))}
           </div>
           {overview.loading && <Busy />}
           {overview.error && <p className="px-5 py-4 text-sm" role="status">Connection status is unavailable. Refresh to try again.</p>}
-          <div className="studio-connector-footer">
-            <button className="studio-dark-button" onClick={onOpenSettings}>Manage connections<ArrowUpRight className="size-4" aria-hidden="true" /></button>
-          </div>
         </Card>
       </div>
       <section className="studio-resource-strip" aria-label="Report tools and workbook sources">
@@ -1066,8 +904,6 @@ export function LiveDashboard({
     </div>
   );
 }
-
-void DashboardLegacy;
 
 function rawField(rawJson: string | undefined, candidates: string[]) {
   try {
